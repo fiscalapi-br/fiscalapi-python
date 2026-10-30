@@ -2,7 +2,7 @@
 # A tag precisa bater com a versão do pyproject.toml e do _version.py.
 # Configuração única no PyPI (o projeto ainda não existe, então é um "pending
 # publisher"): Account settings → Publishing → Add a new pending publisher →
-# GitHub: project "fiscalapi-br", owner "fiscaIapi", repo "fiscalapi-python",
+# GitHub: project "fiscalapi-br", owner "fiscalapi-br", repo "fiscalapi-python",
 # workflow "publish.yml", environment "pypi".
 name: Publish
 

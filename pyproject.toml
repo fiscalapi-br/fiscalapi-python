@@ -31,8 +31,8 @@ dependencies = []
 [project.urls]
 Homepage = "https://fiscalapi.com.br"
 Documentation = "https://docs.fiscalapi.com.br"
-Source = "https://github.com/fiscaIapi/fiscalapi-python"
-Issues = "https://github.com/fiscaIapi/fiscalapi-python/issues"
+Source = "https://github.com/fiscalapi-br/fiscalapi-python"
+Issues = "https://github.com/fiscalapi-br/fiscalapi-python/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fiscalapi_br"]
