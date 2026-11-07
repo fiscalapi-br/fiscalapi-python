@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fiscalapi-br"
-version = "0.1.0"
+version = "0.1.1"
 description = "SDK da FiscalAPI (Brasil): Inscrição Estadual, CNPJ, certidões, NF-e, SIGEF, CNIR e perfil do produtor rural."
 readme = "README.md"
 license = "MIT"
