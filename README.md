@@ -16,7 +16,7 @@ pip install fiscalapi-br
 ## Antes de começar
 
 1. Crie sua conta em [app.fiscalapi.com.br](https://app.fiscalapi.com.br) e copie a chave de API no painel.
-2. **O uso pela API exige um plano ativo ou créditos.** As consultas gratuitas do mês valem só no painel; pela API, uma conta sem plano recebe `402` (`InsufficientBalanceError`).
+2. **10 consultas grátis por mês, no painel e pela API**: IE em um estado e CNPJ, para conta que nunca assinou plano, com e-mail confirmado e sem recarga. Não valem para IE em todos os estados nem para CNPJ ao vivo. Depois disso, é preciso plano ou saldo: a API responde `402` (`InsufficientBalanceError`). Sem chave, `403` (`AuthenticationError`).
 3. Planos e consumo de créditos: [docs.fiscalapi.com.br](https://docs.fiscalapi.com.br/docs/referencia/plans-and-limits).
 
 ## Uso rápido
@@ -149,7 +149,7 @@ try:
 except AuthenticationError:
     ...  # chave ausente, inválida ou revogada (401/403)
 except InsufficientBalanceError as e:
-    print(e.consultas_restantes)  # sem plano ou saldo esgotado (402)
+    print(e.consultas_restantes)  # cota grátis, plano ou saldo esgotado (402)
 except RateLimitError as e:
     print(e.retry_after)  # limite por minuto do plano (429)
 except BadRequestError as e:
@@ -171,6 +171,10 @@ api = FiscalAPI("sua-chave", timeout=200, max_retries=3)
 ## Links
 
 - Documentação: [docs.fiscalapi.com.br](https://docs.fiscalapi.com.br)
+- Guias (Excel, Google Sheets, n8n, Make, Power Automate, Python, Node.js, PHP): [docs.fiscalapi.com.br/docs/guias](https://docs.fiscalapi.com.br/docs/guias)
+- Especificação OpenAPI: [docs.fiscalapi.com.br/openapi.json](https://docs.fiscalapi.com.br/openapi.json)
+- Servidor MCP: [fiscalapi-br/fiscalapi-mcp](https://github.com/fiscalapi-br/fiscalapi-mcp)
+- Para desenvolvedores: [fiscalapi.com.br/desenvolvedores](https://fiscalapi.com.br/desenvolvedores/)
 - Painel: [app.fiscalapi.com.br](https://app.fiscalapi.com.br)
 - Suporte: contato@fiscalapi.com.br
 
