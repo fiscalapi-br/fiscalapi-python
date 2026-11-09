@@ -1,6 +1,6 @@
 # FiscalAPI — SDK Python
 
-Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e por chave, SIGEF, CNIR e perfil do produtor rural.
+Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e por chave, NFS-e por chave, Simples Nacional, SIGEF, CNIR e perfil do produtor rural.
 
 - Zero dependências (só a biblioteca padrão).
 - Python 3.9 ou superior.
@@ -44,6 +44,8 @@ for ie in resp["results"]:
 | `consultar_cndt(cpf=/cnpj=)` | `GET /api/consultar-cndt` | Certidão de débitos trabalhistas |
 | `consultar_crf_fgts(cpf=/cnpj=)` | `GET /api/consultar-crf-fgts` | Regularidade do FGTS |
 | `consultar_certidoes_todas(cpf=/cnpj=, skip_estaduais=False)` | `GET /api/certidoes-todas` | Todas as certidões em uma chamada |
+| `consultar_simples_nacional(cnpj)` | `GET /api/consultar-simples-nacional` | Situação no Simples Nacional e SIMEI |
+| `consultar_nfse(chave, danfse=False)` | `GET /api/consultar-nfse` | NFS-e (padrão nacional) por chave, sem certificado |
 | `consultar_nfe_xml(chave, certificado=, senha=, manifestar=True)` | `POST /api/consultar-nfe-xml` | XML completo da NF-e |
 | `consultar_sigef(cpf=/cnpj=)` | `GET /api/consultar-sigef` | Parcelas certificadas no SIGEF/INCRA |
 | `consultar_sigef_parcela(uuid, force_fresh=False)` | `GET /api/consultar-sigef-parcela` | Uma parcela com polígono, vértices e confrontantes |
@@ -74,6 +76,25 @@ print(empresa["result"]["razao_social"], empresa["result"]["situacao_cadastral"]
 # Dado atual, sem cache (consome mais créditos):
 api.consultar_cnpj("12345678000195", force_fresh=True)
 ```
+
+### Simples Nacional
+
+```python
+r = api.consultar_simples_nacional("11222333000181")
+print(r["optante_simples"], r["situacao_simei"], r["regime_regular_ibs"])
+```
+
+### NFS-e por chave
+
+```python
+nfse = api.consultar_nfse(
+    "35503082211222333000181000000000012326100000045676",
+    danfse=True,  # opcional: PDF do DANFSe em base64
+)
+print(nfse["emitente"]["razao_social"], nfse["tributacao_municipal"]["valor_servico"])
+```
+
+Uma consulta nova leva de 30 a 60 segundos. Só a NFS-e entregue é cobrada.
 
 ### Certidões com PDF
 
