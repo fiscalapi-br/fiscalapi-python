@@ -248,3 +248,125 @@ class PerfilProdutorResponse(TypedDict, total=False):
     cnd_estaduais: Optional[CNDTodosResponse]
     certidoes_federais: List[CertidaoFederalResponse]
     cnir: Optional[CnirResponse]
+
+
+class SimplesNacionalEventoFuturo(TypedDict, total=False):
+    regime: str
+    descricao: str
+    data_efeito: str
+
+
+class SimplesNacionalPeriodoAnterior(TypedDict, total=False):
+    data_inicial: str
+    data_final: str
+    detalhamento: str
+
+
+class SimplesNacionalMaisInfo(TypedDict, total=False):
+    opcoes_periodos_anteriores: str
+    opcoes_periodos_anteriores_lista: List[SimplesNacionalPeriodoAnterior]
+    enquadramentos_simei_periodos_anteriores: str
+    enquadramentos_simei_periodos_anteriores_lista: List[SimplesNacionalPeriodoAnterior]
+    eventos_futuros_simples: str
+    eventos_futuros_simei: str
+    mei_tac: str
+
+
+class SimplesNacionalResponse(TypedDict, total=False):
+    request_id: str
+    cnpj: str
+    cnpj_matriz: str  # para filiais, a situação é a da matriz
+    nome_empresarial: str
+    data_consulta: str
+    situacao_simples: str
+    optante_simples: bool
+    data_opcao_simples: Optional[str]
+    situacao_simei: str
+    enquadrado_simei: bool
+    regime_regular_ibs: str
+    regime_regular_cbs: str
+    eventos_futuros: List[SimplesNacionalEventoFuturo]
+    mais_info: Optional[SimplesNacionalMaisInfo]
+    cached: bool
+
+
+class NfseEndereco(TypedDict, total=False):
+    logradouro: Optional[str]
+    numero: Optional[str]
+    complemento: Optional[str]
+    bairro: Optional[str]
+    cep: Optional[str]
+    municipio: Optional[str]
+    uf: Optional[str]
+
+
+class NfseEmitente(TypedDict, total=False):
+    razao_social: Optional[str]
+    cpf_cnpj: Optional[str]
+    inscricao_municipal: Optional[str]
+    situacao_simples_nacional: Optional[str]
+    regime_especial_tributacao: Optional[str]
+    endereco: Optional[NfseEndereco]
+
+
+class NfsePessoa(TypedDict, total=False):
+    cpf_cnpj: Optional[str]
+    inscricao_municipal: Optional[str]
+    nome: Optional[str]
+
+
+class NfseServico(TypedDict, total=False):
+    pais: Optional[str]
+    municipio: Optional[str]
+    codigo_tributacao_nacional: Optional[str]
+    descricao_codigo: Optional[str]
+    item_nbs: Optional[str]
+    descricao: Optional[str]
+
+
+class NfseTributacaoMunicipal(TypedDict, total=False):
+    tributacao_issqn: Optional[str]
+    municipio_incidencia: Optional[str]
+    valor_servico: Optional[float]
+    desconto_incondicionado: Optional[float]
+    deducoes: Optional[float]
+    beneficio_municipal: Optional[float]
+    base_calculo: Optional[float]
+    aliquota: Optional[float]  # percentual (2.5 = 2,5%)
+    valor_issqn: Optional[float]
+    retencao: Optional[str]
+
+
+class NfseTributacaoFederal(TypedDict, total=False):
+    situacao_pis_cofins: Optional[str]
+    base_calculo_pis_cofins: Optional[float]
+    aliquota_pis: Optional[float]
+    valor_pis: Optional[float]
+    aliquota_cofins: Optional[float]
+    valor_cofins: Optional[float]
+    irrf: Optional[float]
+    contribuicoes_sociais_retidas: Optional[float]
+    contribuicao_previdenciaria_retida: Optional[float]
+
+
+class NfseResponse(TypedDict, total=False):
+    request_id: str
+    chave: str
+    numero_nfse: Optional[str]
+    codigo_municipio_emissor: Optional[str]
+    data_geracao: Optional[str]
+    versao: Optional[str]
+    dps: Optional[dict]
+    situacao: Optional[dict]  # codigo/descricao; não indica cancelamento
+    emitente: Optional[NfseEmitente]
+    tomador: Optional[NfsePessoa]
+    intermediario: Optional[NfsePessoa]
+    servico: Optional[NfseServico]
+    tributacao_municipal: Optional[NfseTributacaoMunicipal]
+    tributacao_federal: Optional[NfseTributacaoFederal]
+    total_tributos: List[dict]
+    informacoes_complementares: Optional[str]
+    ambiente_gerador: Optional[str]
+    cached: bool
+    danfse_pdf_base64: Optional[str]  # só com danfse=True
+    aviso: Optional[str]

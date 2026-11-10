@@ -31,9 +31,11 @@ from .types import (
     ConsultaIEResponse,
     ConsultaIETodosResponse,
     NfeXmlResponse,
+    NfseResponse,
     PerfilProdutorResponse,
     SigefParcelaResponse,
     SigefResponse,
+    SimplesNacionalResponse,
 )
 
 DEFAULT_BASE_URL = "https://api.fiscalapi.com.br"
@@ -139,6 +141,15 @@ class FiscalAPI:
         params = {"cnpj": cnpj, "force_fresh": force_fresh or None}
         return cast(CNPJResponse, self._get("/api/consultar-cnpj", params))
 
+    def consultar_simples_nacional(self, cnpj: str) -> SimplesNacionalResponse:
+        """Situação no Simples Nacional e SIMEI (``GET /api/consultar-simples-nacional``)."""
+        if not cnpj or not cnpj.strip():
+            raise ValueError("Informe o CNPJ.")
+        return cast(
+            SimplesNacionalResponse,
+            self._get("/api/consultar-simples-nacional", {"cnpj": cnpj.strip()}),
+        )
+
     # ----------------------------------------------------------- Certidões
 
     def consultar_cnd(
@@ -229,6 +240,18 @@ class FiscalAPI:
         }
         # POST não é repetido em 5xx: a manifestação pode já ter sido registrada.
         return cast(NfeXmlResponse, self._request("POST", "/api/consultar-nfe-xml", json_body=body))
+
+    def consultar_nfse(self, chave: str, *, danfse: bool = False) -> NfseResponse:
+        """NFS-e (padrão nacional) pela chave de acesso, sem certificado (``GET /api/consultar-nfse``).
+
+        ``danfse=True`` inclui o PDF do DANFSe em base64. Uma consulta nova
+        pode levar de 30 a 60 segundos.
+        """
+        digitos = "".join(c for c in (chave or "") if c.isdigit())
+        if not digitos:
+            raise ValueError("Informe a chave de acesso.")
+        params = {"chave": digitos, "danfse": danfse or None}
+        return cast(NfseResponse, self._get("/api/consultar-nfse", params))
 
     # ------------------------------------------------------- Imóvel rural
 
