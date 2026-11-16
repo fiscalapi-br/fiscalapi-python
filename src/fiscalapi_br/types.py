@@ -181,6 +181,15 @@ class NfeXmlResponse(TypedDict, total=False):
     resultados: List[NfeXmlResultado]
 
 
+class CteXmlResponse(TypedDict, total=False):
+    request_id: str
+    chave: str
+    status: str  # ok | nao_autorizado | nao_encontrado | erro
+    xml: Optional[str]  # cteProc completo, só com status "ok"
+    mensagem: str
+    creditos_cobrados: int
+
+
 class SigefParcela(TypedDict, total=False):
     parcel_id: str
     codigo_parcela: str
