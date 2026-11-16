@@ -190,6 +190,87 @@ class CteXmlResponse(TypedDict, total=False):
     creditos_cobrados: int
 
 
+# DIFAL de saída (Beta). Só "paga" quita; sem_guia_no_portal,
+# pendente_pagamento e geracao_rejeitada somam em valor_em_aberto.
+SituacaoGuiaDifal = Literal[
+    "sem_guia_no_portal",
+    "pendente_pagamento",
+    "paga",
+    "geracao_rejeitada",
+    "aguardando_processamento",
+    "substituida",
+    "guia_gerada",
+    "nao_se_aplica",
+    "desconhecida",
+]
+# ok é cobrada; parcial, erro e nao_consultada não são.
+StatusUfDifal = Literal["ok", "parcial", "erro", "nao_consultada"]
+
+
+class NotaDifal(TypedDict, total=False):
+    serie: str
+    numero: str
+    data_emissao: Optional[str]  # AAAA-MM-DD
+    vencimento: Optional[str]  # vencimento do imposto, AAAA-MM-DD
+    destinatario: str
+    uf_destino: str
+    valor_total: Optional[float]
+    valor_difal: Optional[float]
+    valor_fcp: Optional[float]
+    situacao_guia_difal: SituacaoGuiaDifal
+    situacao_guia_fcp: SituacaoGuiaDifal
+    em_aberto: bool
+    valor_em_aberto: float
+    a_conferir: bool  # guia existe, pagamento não confirmado; fora do valor em aberto
+    valor_a_conferir: float
+
+
+class GuiaDifal(TypedDict, total=False):
+    numero: str
+    vencimento_imposto: Optional[str]
+    data_limite_pagamento: Optional[str]
+    uf: str
+    tributo: str
+    valor: Optional[float]
+    situacao: Optional[str]  # paga | pendente_pagamento | geracao_rejeitada | aguardando_processamento | substituida
+
+
+class UfDifalResultado(TypedDict, total=False):
+    uf: str
+    status: StatusUfDifal
+    mensagem: str
+    total_documentos: int
+    valor_difal: float
+    valor_fcp: float
+    valor_em_aberto: float
+    notas_em_aberto: int
+    valor_a_conferir: float
+    notas_a_conferir: int
+    notas: List[NotaDifal]
+    guias: List[GuiaDifal]
+
+
+class DifalSaidaResponse(TypedDict, total=False):
+    request_id: str
+    fonte: str
+    emitente_tipo: str  # CNPJ ou CPF do titular do certificado
+    emitente_documento: str
+    competencia: str  # AAAA-MM
+    periodo_inicio: str
+    periodo_fim: str
+    total_documentos: int
+    valor_difal: float
+    valor_fcp: float
+    valor_em_aberto: float
+    notas_em_aberto: int
+    valor_a_conferir: float
+    notas_a_conferir: int
+    completo: bool  # True só quando todas as UFs pedidas vieram "ok"
+    ufs: List[UfDifalResultado]
+    avisos: List[str]
+    creditos_cobrados: int  # 1 por UF "ok"
+
+
 class SigefParcela(TypedDict, total=False):
     parcel_id: str
     codigo_parcela: str
