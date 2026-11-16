@@ -261,7 +261,8 @@ class FiscalAPI:
         if not chave:
             raise ValueError("Informe a chave de acesso.")
         body = {
-            "chave": "".join(ch for ch in chave if ch.isdigit()),
+            # Aceita CNPJ alfanumérico: só tira separadores e põe em maiúsculas.
+            "chave": "".join(ch for ch in chave if ch.isascii() and ch.isalnum()).upper(),
             "certificado": _certificado_base64(certificado),
             "senha": senha,
         }

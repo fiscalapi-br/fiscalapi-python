@@ -184,7 +184,7 @@ class NfeXmlResponse(TypedDict, total=False):
 class CteXmlResponse(TypedDict, total=False):
     request_id: str
     chave: str
-    status: str  # ok | nao_autorizado | nao_encontrado | erro
+    status: Literal["ok", "nao_autorizado", "nao_encontrado", "erro"]
     xml: Optional[str]  # cteProc completo, só com status "ok"
     mensagem: str
     creditos_cobrados: int

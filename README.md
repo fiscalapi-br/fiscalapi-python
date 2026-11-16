@@ -144,7 +144,7 @@ cte = api.consultar_cte_xml(
 )
 if cte["status"] == "ok":
     with open(f"{cte['chave']}.xml", "w", encoding="utf-8") as f:
-        f.write(cte["xml"])
+        f.write(cte.get("xml") or "")
 else:
     print(cte["status"], cte["mensagem"])
 ```
