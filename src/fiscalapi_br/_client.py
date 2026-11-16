@@ -30,6 +30,7 @@ from .types import (
     CNPJResponse,
     ConsultaIEResponse,
     ConsultaIETodosResponse,
+    CteXmlResponse,
     NfeXmlResponse,
     NfseResponse,
     PerfilProdutorResponse,
@@ -240,6 +241,33 @@ class FiscalAPI:
         }
         # POST não é repetido em 5xx: a manifestação pode já ter sido registrada.
         return cast(NfeXmlResponse, self._request("POST", "/api/consultar-nfe-xml", json_body=body))
+
+    def consultar_cte_xml(
+        self,
+        chave: str,
+        *,
+        certificado: Certificado,
+        senha: str,
+    ) -> CteXmlResponse:
+        """XML completo de um CT-e, CT-e OS ou GTV-e pela chave de acesso (``POST /api/consultar-cte-xml``).
+
+        Args:
+            chave: chave de acesso com 44 dígitos.
+            certificado: certificado A1 (.pfx/.p12) do participante do documento —
+                caminho do arquivo, ``bytes`` do arquivo ou o conteúdo já em
+                base64. O certificado não é armazenado pela API.
+            senha: senha do certificado.
+        """
+        if not chave:
+            raise ValueError("Informe a chave de acesso.")
+        body = {
+            # Aceita CNPJ alfanumérico: só tira separadores e põe em maiúsculas.
+            "chave": "".join(ch for ch in chave if ch.isascii() and ch.isalnum()).upper(),
+            "certificado": _certificado_base64(certificado),
+            "senha": senha,
+        }
+        # POST não é repetido em 5xx.
+        return cast(CteXmlResponse, self._request("POST", "/api/consultar-cte-xml", json_body=body))
 
     def consultar_nfse(self, chave: str, *, danfse: bool = False) -> NfseResponse:
         """NFS-e (padrão nacional) pela chave de acesso, sem certificado (``GET /api/consultar-nfse``).

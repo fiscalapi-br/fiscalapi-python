@@ -1,6 +1,6 @@
 # FiscalAPI — SDK Python
 
-Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e por chave, NFS-e por chave, Simples Nacional, SIGEF, CNIR e perfil do produtor rural.
+Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e e de CT-e por chave, NFS-e por chave, Simples Nacional, SIGEF, CNIR e perfil do produtor rural.
 
 - Zero dependências (só a biblioteca padrão).
 - Python 3.9 ou superior.
@@ -47,6 +47,7 @@ for ie in resp["results"]:
 | `consultar_simples_nacional(cnpj)` | `GET /api/consultar-simples-nacional` | Situação no Simples Nacional e SIMEI |
 | `consultar_nfse(chave, danfse=False)` | `GET /api/consultar-nfse` | NFS-e (padrão nacional) por chave, sem certificado |
 | `consultar_nfe_xml(chave, certificado=, senha=, manifestar=True)` | `POST /api/consultar-nfe-xml` | XML completo da NF-e |
+| `consultar_cte_xml(chave, certificado=, senha=)` | `POST /api/consultar-cte-xml` | XML completo do CT-e |
 | `consultar_sigef(cpf=/cnpj=)` | `GET /api/consultar-sigef` | Parcelas certificadas no SIGEF/INCRA |
 | `consultar_sigef_parcela(uuid, force_fresh=False)` | `GET /api/consultar-sigef-parcela` | Uma parcela com polígono, vértices e confrontantes |
 | `consultar_cnir(cpf=/cnpj=)` | `GET /api/consultar-cnir` | Imóveis rurais no CNIR/CAFIR |
@@ -132,6 +133,23 @@ else:
 ```
 
 O certificado A1 precisa ser de um participante da nota (emitente, destinatário, transportador ou autorizado) e **não é armazenado** pela API. Só há cobrança quando o XML é devolvido.
+
+### XML de CT-e por chave
+
+```python
+cte = api.consultar_cte_xml(
+    "51261011222333000181570010000001231123456784",
+    certificado="certificado.pfx",   # caminho, bytes do arquivo ou base64
+    senha="senha-do-certificado",
+)
+if cte["status"] == "ok":
+    with open(f"{cte['chave']}.xml", "w", encoding="utf-8") as f:
+        f.write(cte.get("xml") or "")
+else:
+    print(cte["status"], cte["mensagem"])
+```
+
+Aceita CT-e (modelo 57), CT-e OS (67) e GTV-e (64). O certificado A1 precisa ser de um participante do documento (emitente, tomador, remetente, destinatário, expedidor ou recebedor) e **não é armazenado** pela API. Só há cobrança quando o XML é devolvido.
 
 ### Imóvel rural
 
