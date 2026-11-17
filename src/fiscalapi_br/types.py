@@ -191,7 +191,9 @@ class CteXmlResponse(TypedDict, total=False):
 
 
 # DIFAL de saída (Beta). Só "paga" quita; sem_guia_no_portal,
-# pendente_pagamento e geracao_rejeitada somam em valor_em_aberto.
+# pendente_pagamento e geracao_rejeitada somam em valor_em_aberto, menos em
+# DF, GO e MT: lá a guia é emitida no sistema da SEFAZ e sem_guia_no_portal
+# soma em valor_a_conferir.
 SituacaoGuiaDifal = Literal[
     "sem_guia_no_portal",
     "pendente_pagamento",
@@ -219,9 +221,9 @@ class NotaDifal(TypedDict, total=False):
     valor_fcp: Optional[float]
     situacao_guia_difal: SituacaoGuiaDifal
     situacao_guia_fcp: SituacaoGuiaDifal
-    em_aberto: bool
+    em_aberto: bool  # sem guia no portal (menos em DF, GO e MT), guia pendente ou rejeitada
     valor_em_aberto: float
-    a_conferir: bool  # guia existe, pagamento não confirmado; fora do valor em aberto
+    a_conferir: bool  # guia sem pagamento confirmado ou, em DF, GO e MT, sem guia no portal; fora do em aberto
     valor_a_conferir: float
 
 
