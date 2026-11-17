@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fiscalapi-br"
-version = "0.3.0"
-description = "SDK da FiscalAPI (Brasil): Inscrição Estadual, CNPJ, certidões, NF-e, SIGEF, CNIR e perfil do produtor rural."
+version = "0.4.0"
+description = "SDK da FiscalAPI (Brasil): Inscrição Estadual, CNPJ, certidões, NF-e, CT-e, DIFAL, SIGEF, CNIR e perfil do produtor rural."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -13,7 +13,7 @@ requires-python = ">=3.9"
 authors = [{ name = "FiscalAPI", email = "contato@fiscalapi.com.br" }]
 keywords = [
   "fiscalapi", "inscricao estadual", "sefaz", "cnpj", "cnd", "certidao",
-  "nfe", "sigef", "cnir", "produtor rural", "brasil",
+  "nfe", "difal", "sigef", "cnir", "produtor rural", "brasil",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",

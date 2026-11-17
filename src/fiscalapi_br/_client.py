@@ -5,11 +5,12 @@ import base64
 import json
 import os
 import random
+import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Mapping, Optional, Union, cast
+from typing import Any, Dict, Mapping, Optional, Sequence, Union, cast
 
 from ._errors import (
     APIConnectionError,
@@ -31,6 +32,7 @@ from .types import (
     ConsultaIEResponse,
     ConsultaIETodosResponse,
     CteXmlResponse,
+    DifalSaidaResponse,
     NfeXmlResponse,
     NfseResponse,
     PerfilProdutorResponse,
@@ -268,6 +270,44 @@ class FiscalAPI:
         }
         # POST não é repetido em 5xx.
         return cast(CteXmlResponse, self._request("POST", "/api/consultar-cte-xml", json_body=body))
+
+    def consultar_difal_saida(
+        self,
+        competencia: str,
+        *,
+        certificado: Certificado,
+        senha: str,
+        ufs: Optional[Sequence[str]] = None,
+    ) -> DifalSaidaResponse:
+        """DIFAL de saída (EC 87/2015) por UF de destino, num mês (``POST /api/consultar-difal-saida``). Beta.
+
+        Lista as NF-e do emitente com DIFAL e FCP destacados, a situação da
+        guia de cada nota e o valor em aberto. Cobra 1 consulta por UF com
+        ``status`` "ok". Pode levar cerca de 70 s.
+
+        Args:
+            competencia: mês de emissão das notas, ``AAAA-MM`` (ex.: "2026-10").
+            certificado: certificado A1 (.pfx/.p12) do EMITENTE das notas —
+                caminho do arquivo, ``bytes`` do arquivo ou o conteúdo já em
+                base64. O certificado não é armazenado pela API.
+            senha: senha do certificado.
+            ufs: siglas das UFs de destino. Omitido ou vazio = as 10 atendidas
+                (AC, AP, DF, GO, MS, MT, RR, RS, SC, SE).
+        """
+        competencia = (competencia or "").strip()
+        if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", competencia):
+            raise ValueError("Informe a competência no formato AAAA-MM (ex.: 2026-10).")
+        if isinstance(ufs, str):
+            raise ValueError('Informe as UFs em lista, ex.: ["RS", "SC"].')
+        body: Dict[str, Any] = {
+            "certificado": _certificado_base64(certificado),
+            "senha": senha,
+            "competencia": competencia,
+        }
+        if ufs:
+            body["ufs"] = [_uf(u) for u in ufs]
+        # POST não é repetido em 5xx.
+        return cast(DifalSaidaResponse, self._request("POST", "/api/consultar-difal-saida", json_body=body))
 
     def consultar_nfse(self, chave: str, *, danfse: bool = False) -> NfseResponse:
         """NFS-e (padrão nacional) pela chave de acesso, sem certificado (``GET /api/consultar-nfse``).

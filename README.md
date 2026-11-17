@@ -1,6 +1,6 @@
 # FiscalAPI — SDK Python
 
-Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e e de CT-e por chave, NFS-e por chave, Simples Nacional, SIGEF, CNIR e perfil do produtor rural.
+Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e e de CT-e por chave, DIFAL de saída por UF, NFS-e por chave, Simples Nacional, SIGEF, CNIR e perfil do produtor rural.
 
 - Zero dependências (só a biblioteca padrão).
 - Python 3.9 ou superior.
@@ -48,6 +48,7 @@ for ie in resp["results"]:
 | `consultar_nfse(chave, danfse=False)` | `GET /api/consultar-nfse` | NFS-e (padrão nacional) por chave, sem certificado |
 | `consultar_nfe_xml(chave, certificado=, senha=, manifestar=True)` | `POST /api/consultar-nfe-xml` | XML completo da NF-e |
 | `consultar_cte_xml(chave, certificado=, senha=)` | `POST /api/consultar-cte-xml` | XML completo do CT-e |
+| `consultar_difal_saida(competencia, certificado=, senha=, ufs=)` | `POST /api/consultar-difal-saida` | DIFAL de saída por UF de destino (Beta) |
 | `consultar_sigef(cpf=/cnpj=)` | `GET /api/consultar-sigef` | Parcelas certificadas no SIGEF/INCRA |
 | `consultar_sigef_parcela(uuid, force_fresh=False)` | `GET /api/consultar-sigef-parcela` | Uma parcela com polígono, vértices e confrontantes |
 | `consultar_cnir(cpf=/cnpj=)` | `GET /api/consultar-cnir` | Imóveis rurais no CNIR/CAFIR |
@@ -150,6 +151,26 @@ else:
 ```
 
 Aceita CT-e (modelo 57), CT-e OS (67) e GTV-e (64). O certificado A1 precisa ser de um participante do documento (emitente, tomador, remetente, destinatário, expedidor ou recebedor) e **não é armazenado** pela API. Só há cobrança quando o XML é devolvido.
+
+### DIFAL de saída por UF de destino (Beta)
+
+```python
+difal = api.consultar_difal_saida(
+    "2026-10",
+    certificado="certificado-do-emitente.pfx",   # caminho, bytes do arquivo ou base64
+    senha="senha-do-certificado",
+    ufs=["RS", "SC"],   # omita para as 10 UFs
+)
+for uf in difal["ufs"]:
+    print(uf["uf"], uf["status"], uf["valor_em_aberto"])
+    for nota in uf["notas"]:
+        if nota["em_aberto"]:
+            print("  ", nota["serie"], nota["numero"], nota["situacao_guia_difal"], nota["valor_em_aberto"])
+if not difal["completo"]:
+    print("Alguma UF não veio completa: os totais podem estar incompletos.")
+```
+
+Lista as NF-e do mês com DIFAL e FCP destacados, a situação da guia de cada nota e o valor em aberto, nas UFs de destino AC, AP, DF, GO, MS, MT, RR, RS, SC e SE. O certificado A1 é o do **emitente** das notas e **não é armazenado** pela API. Só `paga` quita: `sem_guia_no_portal`, `pendente_pagamento` e `geracao_rejeitada` somam em `valor_em_aberto`, menos em DF, GO e MT, onde a guia é emitida no sistema da SEFAZ e a nota `sem_guia_no_portal` soma em `valor_a_conferir`. Cobra 1 consulta por UF com `status` `ok`. Guia emitida fora do portal (ERP, Portal GNRE) não aparece. Detalhes: [documentação](https://docs.fiscalapi.com.br/docs/difal/consultar-difal-saida).
 
 ### Imóvel rural
 
