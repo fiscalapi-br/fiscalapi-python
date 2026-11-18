@@ -174,6 +174,7 @@ class FiscalAPI:
         *,
         cpf: Optional[str] = None,
         cnpj: Optional[str] = None,
+        data_nascimento: Optional[str] = None,
         emitir_nova: bool = False,
     ) -> CertidaoFederalResponse:
         """CND Federal — Receita Federal + PGFN (``GET /api/consultar-cnd-federal``).
@@ -181,8 +182,19 @@ class FiscalAPI:
         Devolve a certidão vigente quando ela vale por mais de 3 dias
         (``modo="consulta"``); senão, emite uma nova (``modo="emissao"``).
         ``emitir_nova=True`` força uma nova emissão.
+
+        Para CPF, a Receita exige ``data_nascimento`` do titular
+        (``DD/MM/AAAA`` ou ``AAAA-MM-DD``).
         """
-        params = {**_um_documento(cpf=cpf, cnpj=cnpj), "emitir_nova": emitir_nova or None}
+        doc = _um_documento(cpf=cpf, cnpj=cnpj)
+        nascimento = (data_nascimento or "").strip()
+        if "cpf" in doc and not nascimento:
+            raise ValueError("Informe data_nascimento: a CND Federal de CPF exige a data de nascimento.")
+        params = {
+            **doc,
+            "data_nascimento": nascimento if "cpf" in doc else None,
+            "emitir_nova": emitir_nova or None,
+        }
         return cast(CertidaoFederalResponse, self._get("/api/consultar-cnd-federal", params))
 
     def consultar_cndt(

@@ -40,7 +40,7 @@ for ie in resp["results"]:
 | `consultar_cnpj(cnpj, force_fresh=False)` | `GET /api/consultar-cnpj` | Dados cadastrais da Receita Federal |
 | `consultar_cnd(uf, cpf=/cnpj=)` | `GET /api/consultar-cnd` | CND estadual (ICMS) com PDF |
 | `consultar_cnd_todos(cpf=/cnpj=)` | `GET /api/consultar-cnd-todos` | CND estadual em todos os estados disponíveis |
-| `consultar_cnd_federal(cpf=/cnpj=, emitir_nova=False)` | `GET /api/consultar-cnd-federal` | CND Federal (Receita Federal + PGFN) |
+| `consultar_cnd_federal(cnpj= \| cpf= + data_nascimento=, emitir_nova=False)` | `GET /api/consultar-cnd-federal` | CND Federal (Receita Federal + PGFN) |
 | `consultar_cndt(cpf=/cnpj=)` | `GET /api/consultar-cndt` | Certidão de débitos trabalhistas |
 | `consultar_crf_fgts(cpf=/cnpj=)` | `GET /api/consultar-crf-fgts` | Regularidade do FGTS |
 | `consultar_certidoes_todas(cpf=/cnpj=, skip_estaduais=False)` | `GET /api/certidoes-todas` | Todas as certidões em uma chamada |
@@ -111,6 +111,8 @@ if resultado.get("pdf_base64"):
         f.write(base64.b64decode(resultado["pdf_base64"]))
 
 federal = api.consultar_cnd_federal(cnpj="12345678000195")
+# CPF: a Receita exige a data de nascimento (DD/MM/AAAA ou AAAA-MM-DD)
+federal_pf = api.consultar_cnd_federal(cpf="12345678909", data_nascimento="12/04/1985")
 trabalhista = api.consultar_cndt(cnpj="12345678000195")
 fgts = api.consultar_crf_fgts(cnpj="12345678000195")
 ```
