@@ -1,6 +1,6 @@
 # FiscalAPI — SDK Python
 
-Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e e de CT-e por chave, DIFAL de saída por UF, NFS-e por chave, Simples Nacional, SIGEF, CNIR e perfil do produtor rural.
+Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e e de CT-e por chave, Monitor de NF-e por chave com webhook, DIFAL de saída por UF, NFS-e por chave, Simples Nacional, SIGEF, CNIR e perfil do produtor rural.
 
 - Zero dependências (só a biblioteca padrão).
 - Python 3.9 ou superior.
@@ -48,6 +48,11 @@ for ie in resp["results"]:
 | `consultar_nfse(chave, danfse=False)` | `GET /api/consultar-nfse` | NFS-e (padrão nacional) por chave, sem certificado |
 | `consultar_nfe_xml(chave, certificado=, senha=, manifestar=True)` | `POST /api/consultar-nfe-xml` | XML completo da NF-e |
 | `consultar_cte_xml(chave, certificado=, senha=)` | `POST /api/consultar-cte-xml` | XML completo do CT-e |
+| `cadastrar_chaves_monitor_nfe(chaves, prazo_dias=)` | `POST /api/monitor-nfe/chaves` | Coloca até 1.000 chaves no Monitor de NF-e |
+| `remover_chaves_monitor_nfe(chaves)` / `remover_chave_monitor_nfe(chave)` | `POST /api/monitor-nfe/chaves/remover` / `DELETE /api/monitor-nfe/chaves/{chave}` | Para de monitorar |
+| `listar_chaves_monitor_nfe(status=, ativo=, alterado_desde=, cursor=, limite=)` / `iterar_chaves_monitor_nfe(...)` | `GET /api/monitor-nfe/chaves` | Chaves monitoradas (uma página / todas) |
+| `consultar_chave_monitor_nfe(chave)` | `GET /api/monitor-nfe/chaves/{chave}` | Situação, eventos e entregas que falharam |
+| `cadastrar_webhook_monitor_nfe(url)`, `consultar_webhook_monitor_nfe()`, `remover_webhook_monitor_nfe()`, `rotacionar_segredo_webhook_monitor_nfe()`, `testar_webhook_monitor_nfe()` | `/api/monitor-nfe/webhook` | Webhook dos avisos |
 | `consultar_difal_saida(competencia, certificado=, senha=, ufs=)` | `POST /api/consultar-difal-saida` | DIFAL de saída por UF de destino (Beta) |
 | `consultar_sigef(cpf=/cnpj=)` | `GET /api/consultar-sigef` | Parcelas certificadas no SIGEF/INCRA |
 | `consultar_sigef_parcela(uuid, force_fresh=False)` | `GET /api/consultar-sigef-parcela` | Uma parcela com polígono, vértices e confrontantes |
@@ -154,6 +159,58 @@ else:
 
 Aceita CT-e (modelo 57), CT-e OS (67) e GTV-e (64). O certificado A1 precisa ser de um participante do documento (emitente, tomador, remetente, destinatário, expedidor ou recebedor) e **não é armazenado** pela API. Só há cobrança quando o XML é devolvido.
 
+### Monitor de NF-e por chave
+
+Cadastre as chaves e a FiscalAPI acompanha cada nota na SEFAZ por até 180 dias. Quando a nota é cancelada, denegada ou recebe um evento (carta de correção, por exemplo), chega um aviso no seu webhook. Sem certificado.
+
+```python
+# 1. Webhook (uma vez). Guarde o segredo: ele só volta aqui.
+segredo = api.cadastrar_webhook_monitor_nfe("https://seu-sistema.com/fiscalapi/avisos")["segredo"]
+
+# 2. Chaves: até 1.000 por chamada
+r = api.cadastrar_chaves_monitor_nfe(
+    ["35261111222333000181550010000001231123456787"],
+    prazo_dias=180,  # opcional, de 1 a 180
+)
+print(r["aceitas"], r["valor_cobrado"])
+for item in r["resultados"]:
+    if item["situacao"] == "invalida":
+        print(item["chave"], item["motivo"])
+
+# 3. Consultar e listar
+nota = api.consultar_chave_monitor_nfe("35261111222333000181550010000001231123456787")
+for item in api.iterar_chaves_monitor_nfe(alterado_desde="2026-11-21T00:00:00-03:00"):
+    print(item["chave"], item["status"], item["entregas_falhas"])
+```
+
+Cobra uma vez por chave aceita. Chave já monitorada não é cobrada de novo; chave inválida volta com `motivo` e não é cobrada. Sem saldo para todas, `InsufficientBalanceError` e nenhuma entra.
+
+**Receber o aviso.** Confira a assinatura com o corpo **bruto** (antes de interpretar o JSON):
+
+```python
+import os
+from flask import Flask, request
+from fiscalapi_br import verificar_assinatura
+
+app = Flask(__name__)
+
+@app.post("/fiscalapi/avisos")
+def avisos():
+    if not verificar_assinatura(
+        request.get_data(),
+        request.headers.get("X-FiscalAPI-Assinatura"),
+        request.headers.get("X-FiscalAPI-Timestamp"),
+        os.environ["FISCALAPI_WEBHOOK_SEGREDO"],
+        tolerancia=300,  # padrão, em segundos
+    ):
+        return "", 401
+    aviso = request.get_json()
+    # deduplique por aviso["id"]: a entrega é "pelo menos uma vez"
+    return "", 200  # responda 2xx em até 10 s
+```
+
+A assinatura é `v1=` + HMAC-SHA256 do segredo inteiro (`whsec_...`) sobre `"{timestamp}." + corpo`. Depois de `rotacionar_segredo_webhook_monitor_nfe()`, o cabeçalho traz `v1=nova,v1=anterior` por 24 h: o helper aceita qualquer uma. Tipos de aviso: `nfe.status_alterado`, `nfe.evento_registrado`, `nfe.monitoramento_encerrado` e `teste`. Detalhes: [documentação](https://docs.fiscalapi.com.br).
+
 ### DIFAL de saída por UF de destino (Beta)
 
 ```python
@@ -227,7 +284,7 @@ api = FiscalAPI("sua-chave", timeout=200, max_retries=3)
 ```
 
 - `429`: o SDK espera o tempo do cabeçalho `Retry-After` e tenta de novo.
-- `500`, `502`, `503`, `504` e falhas de rede: novas tentativas com espera exponencial, **só em consultas GET**. A consulta de NF-e (POST) não é repetida automaticamente.
+- `500`, `502`, `503`, `504` e falhas de rede: novas tentativas com espera exponencial, **só em consultas GET**. POST, PUT e DELETE (NF-e, cadastro no monitor, webhook) não são repetidos automaticamente.
 - Algumas consultas (NF-e, SIGEF) podem levar até 3 minutos; o timeout padrão é 200 s.
 
 ## Links

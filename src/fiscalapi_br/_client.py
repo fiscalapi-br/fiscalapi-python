@@ -10,7 +10,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Mapping, Optional, Sequence, Union, cast
+from datetime import datetime
+from typing import Any, Dict, Iterator, Mapping, Optional, Sequence, Union, cast
 
 from ._errors import (
     APIConnectionError,
@@ -23,8 +24,12 @@ from ._errors import (
 )
 from ._version import __version__
 from .types import (
+    CadastroMonitorResponse,
     CertidaoFederalResponse,
     CertidoesTodasResponse,
+    ChaveMonitorada,
+    ChaveMonitoradaDetalhe,
+    ChaveParaMonitorar,
     CNDResponse,
     CNDTodosResponse,
     CnirResponse,
@@ -33,12 +38,19 @@ from .types import (
     ConsultaIETodosResponse,
     CteXmlResponse,
     DifalSaidaResponse,
+    ListaChavesMonitoradas,
     NfeXmlResponse,
     NfseResponse,
     PerfilProdutorResponse,
+    RemoverMonitorResponse,
+    SegredoWebhookRotacionado,
     SigefParcelaResponse,
     SigefResponse,
     SimplesNacionalResponse,
+    StatusMonitorNfe,
+    TesteWebhookEnfileirado,
+    WebhookMonitorAtual,
+    WebhookMonitorCriado,
 )
 
 DEFAULT_BASE_URL = "https://api.fiscalapi.com.br"
@@ -52,6 +64,10 @@ _MAX_BACKOFF = 30.0
 _MAX_RETRY_AFTER = 60.0
 
 Certificado = Union[bytes, bytearray, str, "os.PathLike[str]"]
+
+MONITOR_NFE_MAX_LOTE = 1000
+_MONITOR = "/api/monitor-nfe"
+
 
 
 class FiscalAPI:
@@ -333,6 +349,143 @@ class FiscalAPI:
         params = {"chave": digitos, "danfse": danfse or None}
         return cast(NfseResponse, self._get("/api/consultar-nfse", params))
 
+
+    # ----------------------------------------------------- Monitor de NF-e
+
+    def cadastrar_chaves_monitor_nfe(
+        self,
+        chaves: Sequence[Union[str, ChaveParaMonitorar]],
+        *,
+        prazo_dias: Optional[int] = None,
+    ) -> CadastroMonitorResponse:
+        """Coloca até 1.000 chaves de NF-e no monitor (``POST /api/monitor-nfe/chaves``).
+
+        Cada chave aceita é cobrada uma vez e acompanhada por até ``prazo_dias``
+        (1 a 180, padrão 180). Chave já monitorada não é cobrada de novo; chave
+        inválida volta com ``motivo``, sem cobrança. Sem saldo para todas as
+        aceitas, levanta ``InsufficientBalanceError`` (402) e nenhuma entra.
+
+        Args:
+            chaves: chaves (str) ou dicionários ``{"chave": ..., "status_conhecido": ...}``
+                (padrão ``"autorizada"``: o primeiro aviso só sai se a situação mudar).
+            prazo_dias: dias de monitoramento, de 1 a 180.
+        """
+        itens = []
+        for item in _lote(chaves):
+            if isinstance(item, str):
+                itens.append({"chave": _chave_nfe(item)})
+            else:
+                novo: Dict[str, Any] = {"chave": _chave_nfe(item.get("chave", ""))}
+                if item.get("status_conhecido"):
+                    novo["status_conhecido"] = item["status_conhecido"]
+                itens.append(novo)
+        body: Dict[str, Any] = {"chaves": itens}
+        if prazo_dias is not None:
+            if isinstance(prazo_dias, bool) or not isinstance(prazo_dias, int) or not 1 <= prazo_dias <= 180:
+                raise ValueError("prazo_dias deve ser um inteiro de 1 a 180.")
+            body["prazo_dias"] = prazo_dias
+        # POST não é repetido em 5xx.
+        return cast(CadastroMonitorResponse, self._request("POST", f"{_MONITOR}/chaves", json_body=body))
+
+    def remover_chaves_monitor_nfe(self, chaves: Sequence[str]) -> RemoverMonitorResponse:
+        """Para de monitorar até 1.000 chaves (``POST /api/monitor-nfe/chaves/remover``).
+
+        Sem estorno e sem aviso no webhook.
+        """
+        body = {"chaves": [_chave_nfe(c) for c in _lote(chaves)]}
+        return cast(RemoverMonitorResponse, self._request("POST", f"{_MONITOR}/chaves/remover", json_body=body))
+
+    def remover_chave_monitor_nfe(self, chave: str) -> None:
+        """Para de monitorar uma chave (``DELETE /api/monitor-nfe/chaves/{chave}``).
+
+        Chave fora do monitor: ``BadRequestError`` com ``status_code`` 404.
+        """
+        self._request("DELETE", f"{_MONITOR}/chaves/{_chave_nfe(chave)}")
+
+    def listar_chaves_monitor_nfe(
+        self,
+        *,
+        status: Optional[StatusMonitorNfe] = None,
+        ativo: Optional[bool] = None,
+        alterado_desde: Optional[Union[str, datetime]] = None,
+        cursor: Optional[str] = None,
+        limite: Optional[int] = None,
+    ) -> ListaChavesMonitoradas:
+        """Uma página das chaves monitoradas (``GET /api/monitor-nfe/chaves``).
+
+        Args:
+            status: só notas nesta situação.
+            ativo: ``True`` só monitoramentos correndo; ``False`` só os encerrados.
+            alterado_desde: só o que mudou a partir deste instante. O servidor
+                volta 5 minutos: itens podem repetir (deduplique por ``chave`` +
+                ``atualizada_em``). Sem fuso = horário de Brasília.
+            cursor: ``proximo_cursor`` da página anterior.
+            limite: itens por página, de 1 a 1.000 (padrão do servidor: 100).
+        """
+        params = _query_listagem(status, ativo, alterado_desde, cursor, limite)
+        return cast(ListaChavesMonitoradas, self._get(f"{_MONITOR}/chaves", params))
+
+    def iterar_chaves_monitor_nfe(
+        self,
+        *,
+        status: Optional[StatusMonitorNfe] = None,
+        ativo: Optional[bool] = None,
+        alterado_desde: Optional[Union[str, datetime]] = None,
+        limite: Optional[int] = None,
+    ) -> Iterator[ChaveMonitorada]:
+        """Percorre todas as páginas da listagem, seguindo ``proximo_cursor``.
+
+        Exemplo::
+
+            for item in api.iterar_chaves_monitor_nfe(ativo=True):
+                print(item["chave"], item["status"])
+        """
+        cursor: Optional[str] = None
+        while True:
+            pagina = self.listar_chaves_monitor_nfe(
+                status=status, ativo=ativo, alterado_desde=alterado_desde, cursor=cursor, limite=limite
+            )
+            for item in pagina.get("itens") or []:
+                yield item
+            cursor = pagina.get("proximo_cursor")
+            if not cursor:
+                return
+
+    def consultar_chave_monitor_nfe(self, chave: str) -> ChaveMonitoradaDetalhe:
+        """Situação, eventos, próxima verificação e entregas que falharam de uma chave
+        (``GET /api/monitor-nfe/chaves/{chave}``)."""
+        return cast(ChaveMonitoradaDetalhe, self._get(f"{_MONITOR}/chaves/{_chave_nfe(chave)}", {}))
+
+    def cadastrar_webhook_monitor_nfe(self, url: str) -> WebhookMonitorCriado:
+        """Cadastra ou troca a URL do webhook (``PUT /api/monitor-nfe/webhook``).
+
+        Só ``https`` na porta 443, com nome público. O ``segredo`` volta só
+        aqui: guarde-o. Cadastrar de novo gera outro segredo e reativa o webhook.
+        """
+        url = (url or "").strip()
+        if not url:
+            raise ValueError("Informe a URL do webhook.")
+        return cast(WebhookMonitorCriado, self._request("PUT", f"{_MONITOR}/webhook", json_body={"url": url}))
+
+    def consultar_webhook_monitor_nfe(self) -> WebhookMonitorAtual:
+        """URL cadastrada e se os avisos estão saindo (``GET /api/monitor-nfe/webhook``)."""
+        return cast(WebhookMonitorAtual, self._get(f"{_MONITOR}/webhook", {}))
+
+    def remover_webhook_monitor_nfe(self) -> None:
+        """Remove o webhook (``DELETE /api/monitor-nfe/webhook``). O monitoramento continua."""
+        self._request("DELETE", f"{_MONITOR}/webhook")
+
+    def rotacionar_segredo_webhook_monitor_nfe(self) -> SegredoWebhookRotacionado:
+        """Gera um segredo novo (``POST /api/monitor-nfe/webhook/rotacionar-segredo``).
+
+        Por 24 h os avisos levam as duas assinaturas (``v1=nova,v1=anterior``).
+        """
+        return cast(SegredoWebhookRotacionado, self._request("POST", f"{_MONITOR}/webhook/rotacionar-segredo"))
+
+    def testar_webhook_monitor_nfe(self) -> TesteWebhookEnfileirado:
+        """Enfileira um aviso ``tipo="teste"`` (``POST /api/monitor-nfe/webhook/teste``)."""
+        return cast(TesteWebhookEnfileirado, self._request("POST", f"{_MONITOR}/webhook/teste"))
+
     # ------------------------------------------------------- Imóvel rural
 
     def consultar_sigef(
@@ -444,6 +597,35 @@ def _uf(uf: str) -> str:
     if not uf or len(uf.strip()) != 2:
         raise ValueError("Informe a UF com 2 letras (ex.: MT).")
     return uf.strip().upper()
+
+
+def _lote(chaves: Sequence[Any]) -> Sequence[Any]:
+    if isinstance(chaves, str) or not chaves:
+        raise ValueError("Informe as chaves em lista, ex.: [\"3526...\"].")
+    if len(chaves) > MONITOR_NFE_MAX_LOTE:
+        raise ValueError(f"Envie no máximo {MONITOR_NFE_MAX_LOTE} chaves por chamada.")
+    return chaves
+
+
+def _chave_nfe(chave: str) -> str:
+    """Chave de NF-e só com dígitos (tira pontos, espaços e o prefixo "NFe")."""
+    digitos = "".join(c for c in (chave or "") if c.isascii() and c.isdigit())
+    if not digitos:
+        raise ValueError("Informe a chave de acesso.")
+    return digitos
+
+
+def _query_listagem(
+    status: Optional[str],
+    ativo: Optional[bool],
+    alterado_desde: Optional[Union[str, datetime]],
+    cursor: Optional[str],
+    limite: Optional[int],
+) -> Dict[str, Any]:
+    if limite is not None and (isinstance(limite, bool) or not isinstance(limite, int) or not 1 <= limite <= 1000):
+        raise ValueError("limite deve ser um inteiro de 1 a 1.000.")
+    desde = alterado_desde.isoformat() if isinstance(alterado_desde, datetime) else (alterado_desde or None)
+    return {"status": status, "ativo": ativo, "alterado_desde": desde, "cursor": cursor or None, "limite": limite}
 
 
 def _encode_query(params: Mapping[str, Any]) -> str:
