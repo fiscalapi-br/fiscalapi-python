@@ -462,3 +462,101 @@ class NfseResponse(TypedDict, total=False):
     cached: bool
     danfse_pdf_base64: Optional[str]  # só com danfse=True
     aviso: Optional[str]
+
+
+# ---------------------------------------------------------- Monitor de NF-e
+
+StatusMonitorNfe = Literal[
+    "autorizada",
+    "autorizada_fora_prazo",
+    "denegada",
+    "cancelada",
+    "cancelada_fora_prazo",
+    "nao_encontrada",
+    "chave_divergente",
+]
+
+
+class ChaveParaMonitorar(TypedDict, total=False):
+    chave: str
+    status_conhecido: StatusMonitorNfe  # padrão "autorizada"
+
+
+class ResultadoCadastroMonitor(TypedDict, total=False):
+    chave: str
+    situacao: Literal["aceita", "ja_monitorada", "invalida"]
+    motivo: Optional[str]
+    encerra_em: Optional[str]
+
+
+class CadastroMonitorResponse(TypedDict, total=False):
+    resultados: List[ResultadoCadastroMonitor]
+    aceitas: int
+    valor_cobrado: str  # em reais, ex.: "0,03"
+
+
+class RemoverMonitorResponse(TypedDict, total=False):
+    removidas: int
+    nao_encontradas: List[str]
+
+
+class EventoNfeMonitorada(TypedDict, total=False):
+    tipo: Literal["cancelamento", "carta_correcao", "epec", "outro"]
+    codigo: str
+    sequencia: int
+    protocolo: Optional[str]
+    registrado_em: Optional[str]
+    texto: Optional[str]
+
+
+class ChaveMonitorada(TypedDict, total=False):
+    chave: str
+    status: Optional[StatusMonitorNfe]
+    ativo: bool
+    criada_em: str
+    encerra_em: str
+    encerrada_em: Optional[str]
+    motivo_encerramento: Optional[str]
+    ultima_verificacao_em: Optional[str]
+    proxima_verificacao_em: Optional[str]
+    atualizada_em: str
+    entregas_falhas: int
+
+
+class EntregaFalhaMonitor(TypedDict, total=False):
+    id: str
+    tipo: str
+    criada_em: str
+    tentativas: int
+    ultimo_erro: Optional[str]
+
+
+class ChaveMonitoradaDetalhe(ChaveMonitorada, total=False):
+    eventos: List[EventoNfeMonitorada]
+    entregas_que_falharam: List[EntregaFalhaMonitor]
+
+
+class ListaChavesMonitoradas(TypedDict, total=False):
+    itens: List[ChaveMonitorada]
+    proximo_cursor: Optional[str]
+
+
+class WebhookMonitorCriado(TypedDict, total=False):
+    url: str
+    segredo: str  # mostrado só aqui: guarde-o
+
+
+class WebhookMonitorAtual(TypedDict, total=False):
+    url: str
+    ativo: bool
+    falhando_desde: Optional[str]
+
+
+class SegredoWebhookRotacionado(TypedDict, total=False):
+    segredo: str
+    anterior_valido_ate: str
+
+
+class TesteWebhookEnfileirado(TypedDict, total=False):
+    id: str
+    estado: Literal["pendente"]
