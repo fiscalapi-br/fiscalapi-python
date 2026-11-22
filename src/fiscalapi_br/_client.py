@@ -10,8 +10,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
-from typing import Any, Dict, Iterator, Mapping, Optional, Sequence, Union, cast
+import uuid as _uuid
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union, cast
 
 from ._errors import (
     APIConnectionError,
@@ -24,9 +26,11 @@ from ._errors import (
 )
 from ._version import __version__
 from .types import (
+    AmbienteNfse,
     CadastroMonitorResponse,
     CertidaoFederalResponse,
     CertidoesTodasResponse,
+    CertificadoNfse,
     ChaveMonitorada,
     ChaveMonitoradaDetalhe,
     ChaveParaMonitorar,
@@ -38,19 +42,30 @@ from .types import (
     ConsultaIETodosResponse,
     CteXmlResponse,
     DifalSaidaResponse,
+    EmpresaNfse,
+    EmpresaNfseIn,
+    EmpresaNfsePatch,
     ListaChavesMonitoradas,
     NfeXmlResponse,
     NfseResponse,
+    NotaNfse,
+    NotaNfseIn,
+    PaginaNotasNfse,
     PerfilProdutorResponse,
+    ReenvioWebhookNfse,
     RemoverMonitorResponse,
     SegredoWebhookRotacionado,
     SigefParcelaResponse,
     SigefResponse,
     SimplesNacionalResponse,
     StatusMonitorNfe,
+    StatusNotaNfse,
+    SubstituicaoNfseIn,
     TesteWebhookEnfileirado,
     WebhookMonitorAtual,
     WebhookMonitorCriado,
+    WebhookNfse,
+    WebhookNfseConfigurado,
 )
 
 DEFAULT_BASE_URL = "https://api.fiscalapi.com.br"
@@ -67,7 +82,7 @@ Certificado = Union[bytes, bytearray, str, "os.PathLike[str]"]
 
 MONITOR_NFE_MAX_LOTE = 1000
 _MONITOR = "/api/monitor-nfe"
-
+_NFSE = "/api/nfse"
 
 
 class FiscalAPI:
@@ -486,6 +501,233 @@ class FiscalAPI:
         """Enfileira um aviso ``tipo="teste"`` (``POST /api/monitor-nfe/webhook/teste``)."""
         return cast(TesteWebhookEnfileirado, self._request("POST", f"{_MONITOR}/webhook/teste"))
 
+    # ---------------------------------------------------- Emissão de NFS-e
+
+    def criar_empresa_nfse(self, empresa: EmpresaNfseIn) -> EmpresaNfse:
+        """Cadastra a empresa emissora (``POST /api/nfse/empresas``).
+
+        Envie antes o certificado A1 da mesma raiz do CNPJ (``enviar_certificado_nfse``).
+        """
+        if not isinstance(empresa, Mapping) or not empresa:
+            raise ValueError("Informe os dados da empresa.")
+        return cast(EmpresaNfse, self._request("POST", f"{_NFSE}/empresas", json_body=empresa))
+
+    def listar_empresas_nfse(self) -> List[EmpresaNfse]:
+        """Empresas emissoras da conta, ativas e desativadas (``GET /api/nfse/empresas``)."""
+        return cast(List[EmpresaNfse], self._request("GET", f"{_NFSE}/empresas", lista=True))
+
+    def obter_empresa_nfse(self, empresa_id: str) -> EmpresaNfse:
+        """Uma empresa emissora (``GET /api/nfse/empresas/{empresa_id}``)."""
+        return cast(EmpresaNfse, self._get(f"{_NFSE}/empresas/{_id(empresa_id, 'empresa_id')}", {}))
+
+    def atualizar_empresa_nfse(self, empresa_id: str, mudancas: EmpresaNfsePatch) -> EmpresaNfse:
+        """Edita a empresa (``PATCH /api/nfse/empresas/{empresa_id}``): mande só o que muda.
+
+        ``{"ativa": False}`` desliga a empresa; ``{"ativa": True}`` religa.
+        """
+        if not isinstance(mudancas, Mapping) or not mudancas:
+            raise ValueError("Informe ao menos um campo em mudancas.")
+        caminho = f"{_NFSE}/empresas/{_id(empresa_id, 'empresa_id')}"
+        return cast(EmpresaNfse, self._request("PATCH", caminho, json_body=mudancas))
+
+    def enviar_certificado_nfse(
+        self,
+        certificado: Certificado,
+        *,
+        senha: str = "",
+        nome_arquivo: Optional[str] = None,
+    ) -> CertificadoNfse:
+        """Envia ou renova o certificado A1 da empresa (``PUT /api/nfse/certificados``, multipart).
+
+        e-CNPJ ICP-Brasil, ``.pfx`` de até 100 KB, da mesma raiz do CNPJ que vai
+        emitir. Substitui o anterior da mesma raiz. Não é repetido em 5xx.
+
+        Args:
+            certificado: caminho do arquivo, ``bytes`` do arquivo ou o conteúdo em base64.
+            senha: senha do certificado (vazia se o ``.pfx`` não tiver).
+            nome_arquivo: nome do arquivo no envio (padrão: o do caminho, ou ``certificado.pfx``).
+        """
+        pfx, nome = _certificado_bytes(certificado)
+        corpo, tipo = _multipart(
+            campos={"senha": senha or ""},
+            arquivo=("certificado", nome_arquivo or nome, pfx, "application/x-pkcs12"),
+        )
+        return cast(
+            CertificadoNfse,
+            self._request("PUT", f"{_NFSE}/certificados", raw_body=corpo, content_type=tipo),
+        )
+
+    def excluir_certificado_nfse(self, raiz: str) -> None:
+        """Exclui o certificado de uma raiz (``DELETE /api/nfse/certificados/{raiz}``).
+
+        Aceita a raiz (8 caracteres) ou o CNPJ inteiro, com ou sem pontuação.
+        Antes, desative as empresas da raiz.
+        """
+        limpa = "".join(c for c in (raiz or "") if c.isascii() and c.isalnum()).upper()
+        if len(limpa) == 14:
+            limpa = limpa[:8]
+        if len(limpa) != 8:
+            raise ValueError("Informe a raiz do CNPJ (8 caracteres) ou o CNPJ.")
+        self._request("DELETE", f"{_NFSE}/certificados/{limpa}")
+
+    def emitir_nfse(self, nota: NotaNfseIn, *, idempotency_key: Optional[str] = None) -> NotaNfse:
+        """Pede a emissão de uma NFS-e (``POST /api/nfse/notas``).
+
+        A resposta é ``202``, com a nota ``pendente``; o resultado chega pelo
+        webhook ou por ``obter_nfse``. Em produção, mande ``referencia`` (ou
+        ``idempotency_key``): o mesmo pedido devolve a nota que já existe. Com
+        uma delas, o SDK repete a chamada em falha de rede e 5xx sem risco de
+        nota em dobro.
+        """
+        if not isinstance(nota, Mapping) or not nota:
+            raise ValueError("Informe os dados da nota.")
+        chave = _chave_idempotencia(nota.get("referencia"), idempotency_key, nota.get("ambiente") == "producao")
+        headers = {"Idempotency-Key": idempotency_key.strip()} if idempotency_key else None
+        return cast(
+            NotaNfse,
+            self._request("POST", f"{_NFSE}/notas", json_body=nota, headers=headers, idempotent=chave is not None),
+        )
+
+    def obter_nfse(self, nota_id: str) -> NotaNfse:
+        """Uma NFS-e emitida (``GET /api/nfse/notas/{nota_id}``)."""
+        return cast(NotaNfse, self._get(f"{_NFSE}/notas/{_id(nota_id, 'nota_id')}", {}))
+
+    def listar_nfse(
+        self,
+        *,
+        status: Optional[StatusNotaNfse] = None,
+        ambiente: Optional[AmbienteNfse] = None,
+        referencia: Optional[str] = None,
+        atualizada_desde: Optional[Union[str, datetime]] = None,
+        cursor: Optional[str] = None,
+        limite: Optional[int] = None,
+    ) -> PaginaNotasNfse:
+        """Uma página das NFS-e emitidas (``GET /api/nfse/notas``), em ordem de ``updated_at``.
+
+        Args:
+            status: só notas nesta situação.
+            ambiente: ``"homologacao"`` ou ``"producao"``.
+            referencia: busca pela sua referência.
+            atualizada_desde: só notas com ``updated_at`` igual ou posterior. A nota
+                do próprio instante volta de novo: trate a repetição pelo ``id``.
+            cursor: ``proximo`` da página anterior.
+            limite: notas por página, de 1 a 100 (padrão do servidor: 50).
+        """
+        if limite is not None and (isinstance(limite, bool) or not isinstance(limite, int) or not 1 <= limite <= 100):
+            raise ValueError("limite deve ser um inteiro de 1 a 100.")
+        desde = atualizada_desde.isoformat() if isinstance(atualizada_desde, datetime) else (atualizada_desde or None)
+        params = {
+            "status": status,
+            "ambiente": ambiente,
+            "referencia": referencia or None,
+            "atualizada_desde": desde,
+            "cursor": cursor or None,
+            "limite": limite,
+        }
+        return cast(PaginaNotasNfse, self._get(f"{_NFSE}/notas", params))
+
+    def iterar_nfse(
+        self,
+        *,
+        status: Optional[StatusNotaNfse] = None,
+        ambiente: Optional[AmbienteNfse] = None,
+        referencia: Optional[str] = None,
+        atualizada_desde: Optional[Union[str, datetime]] = None,
+        limite: Optional[int] = None,
+    ) -> Iterator[NotaNfse]:
+        """Percorre todas as páginas da listagem, seguindo o cursor ``proximo``.
+
+        Exemplo::
+
+            for nota in api.iterar_nfse(ambiente="producao", atualizada_desde=ultimo):
+                print(nota["id"], nota["status"])
+        """
+        cursor: Optional[str] = None
+        while True:
+            pagina = self.listar_nfse(
+                status=status, ambiente=ambiente, referencia=referencia,
+                atualizada_desde=atualizada_desde, cursor=cursor, limite=limite,
+            )
+            for nota in pagina.get("itens") or []:
+                yield nota
+            cursor = pagina.get("proximo")
+            if not cursor:
+                return
+
+    def cancelar_nfse(self, nota_id: str, *, motivo: int, justificativa: str) -> NotaNfse:
+        """Pede o cancelamento de uma NFS-e autorizada (``POST /api/nfse/notas/{nota_id}/cancelamento``).
+
+        A resposta traz a nota ``cancelando``; o resultado chega pelo webhook
+        (``cancelada`` ou ``cancelamento_recusado``).
+
+        Args:
+            motivo: ``1`` erro na emissão, ``2`` serviço não prestado, ``9`` outros.
+            justificativa: de 15 a 255 caracteres.
+        """
+        texto = (justificativa or "").strip()
+        if not 15 <= len(texto) <= 255:
+            raise ValueError("justificativa deve ter de 15 a 255 caracteres.")
+        caminho = f"{_NFSE}/notas/{_id(nota_id, 'nota_id')}/cancelamento"
+        return cast(NotaNfse, self._request("POST", caminho, json_body={"motivo": motivo, "justificativa": texto}))
+
+    def substituir_nfse(
+        self,
+        nota_id: str,
+        substituicao: SubstituicaoNfseIn,
+        *,
+        idempotency_key: Optional[str] = None,
+    ) -> NotaNfse:
+        """Substitui uma NFS-e autorizada por outra (``POST /api/nfse/notas/{nota_id}/substituicao``).
+
+        Devolve a nota NOVA, ``pendente``, com ``substitui_id``. Em produção,
+        mande a ``referencia`` da nota nova (ou ``idempotency_key``).
+        """
+        if not isinstance(substituicao, Mapping) or not substituicao:
+            raise ValueError("Informe os dados da substituição.")
+        chave = _chave_idempotencia(substituicao.get("referencia"), idempotency_key, False)
+        headers = {"Idempotency-Key": idempotency_key.strip()} if idempotency_key else None
+        caminho = f"{_NFSE}/notas/{_id(nota_id, 'nota_id')}/substituicao"
+        return cast(
+            NotaNfse,
+            self._request("POST", caminho, json_body=substituicao, headers=headers, idempotent=chave is not None),
+        )
+
+    def baixar_xml_nfse(self, nota_id: str) -> str:
+        """XML da NFS-e autorizada (``GET /api/nfse/notas/{nota_id}/xml``). Não cobra."""
+        caminho = f"{_NFSE}/notas/{_id(nota_id, 'nota_id')}/xml"
+        conteudo = self._request("GET", caminho, binario=True, headers={"Accept": "application/xml"})
+        return cast(bytes, conteudo).decode("utf-8")
+
+    def baixar_pdf_nfse(self, nota_id: str) -> bytes:
+        """PDF do DANFSe (``GET /api/nfse/notas/{nota_id}/pdf``). Não cobra."""
+        caminho = f"{_NFSE}/notas/{_id(nota_id, 'nota_id')}/pdf"
+        return cast(bytes, self._request("GET", caminho, binario=True, headers={"Accept": "application/pdf"}))
+
+    def configurar_webhook_nfse(self, url: str) -> WebhookNfseConfigurado:
+        """Configura o webhook da emissão (``PUT /api/nfse/webhook``).
+
+        Um por conta, para os dois ambientes. O ``segredo`` volta só no primeiro
+        cadastro: guarde-o. Chamar de novo troca a URL e mantém o segredo
+        (``segredo`` ``None``).
+        """
+        url = (url or "").strip()
+        if not url:
+            raise ValueError("Informe a URL do webhook.")
+        return cast(WebhookNfseConfigurado, self._request("PUT", f"{_NFSE}/webhook", json_body={"url": url}))
+
+    def obter_webhook_nfse(self) -> WebhookNfse:
+        """Webhook da emissão (``GET /api/nfse/webhook``). Sem webhook: ``url`` ``None``."""
+        return cast(WebhookNfse, self._get(f"{_NFSE}/webhook", {}))
+
+    def remover_webhook_nfse(self) -> None:
+        """Remove o webhook da emissão (``DELETE /api/nfse/webhook``). As notas continuam."""
+        self._request("DELETE", f"{_NFSE}/webhook")
+
+    def reenviar_webhook_nfse(self, nota_id: str) -> ReenvioWebhookNfse:
+        """Põe de novo na fila os avisos de uma nota (``POST /api/nfse/notas/{nota_id}/webhook``)."""
+        caminho = f"{_NFSE}/notas/{_id(nota_id, 'nota_id')}/webhook"
+        return cast(ReenvioWebhookNfse, self._request("POST", caminho))
+
     # ------------------------------------------------------- Imóvel rural
 
     def consultar_sigef(
@@ -533,30 +775,43 @@ class FiscalAPI:
         *,
         params: Optional[Mapping[str, Any]] = None,
         json_body: Optional[Mapping[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        raw_body: Optional[bytes] = None,
+        content_type: Optional[str] = None,
+        headers: Optional[Mapping[str, str]] = None,
+        idempotent: Optional[bool] = None,
+        binario: bool = False,
+        lista: bool = False,
+    ) -> Any:
         url = self.base_url + path
         query = _encode_query(params or {})
         if query:
             url = f"{url}?{query}"
 
         data: Optional[bytes] = None
-        headers = {
+        req_headers = {
             "X-API-Key": self.api_key,
             "Accept": "application/json",
             "User-Agent": self.user_agent,
         }
         if json_body is not None:
-            data = json.dumps(json_body).encode("utf-8")
-            headers["Content-Type"] = "application/json"
+            data = json.dumps(json_body, default=_json_default).encode("utf-8")
+            req_headers["Content-Type"] = "application/json"
+        elif raw_body is not None:
+            data = raw_body
+            req_headers["Content-Type"] = content_type or "application/octet-stream"
+        if headers:
+            req_headers.update(headers)
 
-        idempotent = method == "GET"
+        repete = method == "GET" or idempotent is True
         attempt = 0
         while True:
-            req = urllib.request.Request(url, data=data, method=method, headers=headers)
+            req = urllib.request.Request(url, data=data, method=method, headers=req_headers)
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     raw = resp.read()
-                return _decode_success(raw)
+                if binario:
+                    return raw
+                return _decode_success(raw, lista=lista)
             except urllib.error.HTTPError as exc:
                 status = exc.code
                 resp_headers = dict(exc.headers.items()) if exc.headers else {}
@@ -564,8 +819,8 @@ class FiscalAPI:
                     raw_err = exc.read()
                 except OSError:
                     raw_err = b""
-                retryable = status in _RETRYABLE_ANY_METHOD or (
-                    idempotent and status in _RETRYABLE_IDEMPOTENT
+                retryable = (status in _RETRYABLE_ANY_METHOD and b"NFSE_HOMOLOG_LIMITE" not in raw_err) or (
+                    repete and status in _RETRYABLE_IDEMPOTENT
                 )
                 if retryable and attempt < self.max_retries:
                     time.sleep(_delay(attempt, resp_headers.get("Retry-After")))
@@ -573,7 +828,7 @@ class FiscalAPI:
                     continue
                 raise _error_from_response(status, raw_err, resp_headers) from None
             except OSError as exc:  # URLError, timeout, conexão recusada
-                if idempotent and attempt < self.max_retries:
+                if repete and attempt < self.max_retries:
                     time.sleep(_delay(attempt, None))
                     attempt += 1
                     continue
@@ -657,6 +912,87 @@ def _certificado_base64(cert: Certificado) -> str:
     raise TypeError("certificado deve ser caminho, bytes ou string base64.")
 
 
+def _id(valor: str, nome: str) -> str:
+    """Id (UUID) de empresa ou nota, pronto para o caminho."""
+    v = (valor or "").strip() if isinstance(valor, str) else str(valor or "").strip()
+    if not v:
+        raise ValueError(f"Informe {nome}.")
+    return urllib.parse.quote(v, safe="")
+
+
+def _chave_idempotencia(referencia: Any, idempotency_key: Optional[str], producao: bool) -> Optional[str]:
+    """Confere ``referencia`` x ``Idempotency-Key`` antes de chamar (a API responderia 422)."""
+    ref = referencia.strip() if isinstance(referencia, str) else ""
+    key = (idempotency_key or "").strip()
+    if ref and key and ref != key:
+        raise ValueError("referencia e idempotency_key diferentes: mande só uma, ou as duas iguais.")
+    if producao and not ref and not key:
+        raise ValueError("Em produção, informe referencia (ou idempotency_key) para não emitir a nota em dobro.")
+    return ref or key or None
+
+
+def _json_default(valor: Any) -> Any:
+    if isinstance(valor, Decimal):
+        return str(valor)
+    if isinstance(valor, (date, datetime)):
+        return valor.isoformat()
+    raise TypeError(f"Valor não serializável em JSON: {type(valor).__name__}")
+
+
+def _certificado_bytes(cert: Certificado) -> Tuple[bytes, str]:
+    """Bytes do .pfx e o nome do arquivo (caminho, bytes ou base64)."""
+    if isinstance(cert, (bytes, bytearray)):
+        dados, nome = bytes(cert), "certificado.pfx"
+    elif isinstance(cert, os.PathLike) or (
+        isinstance(cert, str) and len(cert) < 4096 and _arquivo_existe(cert)
+    ):
+        with open(cert, "rb") as fh:
+            dados = fh.read()
+        nome = os.path.basename(os.fspath(cert)) or "certificado.pfx"
+    elif isinstance(cert, str):
+        try:
+            dados = base64.b64decode("".join(cert.split()), validate=True)
+        except ValueError as exc:
+            raise ValueError("certificado deve ser caminho, bytes ou string base64.") from exc
+        nome = "certificado.pfx"
+    else:
+        raise TypeError("certificado deve ser caminho, bytes ou string base64.")
+    if not dados:
+        raise ValueError("Informe o certificado (.pfx).")
+    return dados, nome
+
+
+def _arquivo_existe(caminho: str) -> bool:
+    try:
+        return os.path.isfile(caminho)
+    except (OSError, ValueError):
+        return False
+
+
+def _multipart(campos: Mapping[str, str], arquivo: Tuple[str, str, bytes, str]) -> Tuple[bytes, str]:
+    """Corpo multipart/form-data (só biblioteca padrão)."""
+    fronteira = f"fiscalapi-{_uuid.uuid4().hex}"
+    partes: List[bytes] = []
+    for nome, valor in campos.items():
+        partes.append(
+            f'--{fronteira}\r\nContent-Disposition: form-data; name="{nome}"\r\n\r\n'.encode("utf-8")
+            + valor.encode("utf-8")
+            + b"\r\n"
+        )
+    campo, nome_arquivo, dados, tipo = arquivo
+    nome_seguro = nome_arquivo.replace('"', "").replace("\r", "").replace("\n", "")
+    partes.append(
+        (
+            f'--{fronteira}\r\nContent-Disposition: form-data; name="{campo}"; filename="{nome_seguro}"\r\n'
+            f"Content-Type: {tipo}\r\n\r\n"
+        ).encode("utf-8")
+        + dados
+        + b"\r\n"
+    )
+    partes.append(f"--{fronteira}--\r\n".encode("ascii"))
+    return b"".join(partes), f"multipart/form-data; boundary={fronteira}"
+
+
 def _delay(attempt: int, retry_after: Optional[str]) -> float:
     if retry_after:
         try:
@@ -667,13 +1003,15 @@ def _delay(attempt: int, retry_after: Optional[str]) -> float:
     return base + random.uniform(0, base / 4)
 
 
-def _decode_success(raw: bytes) -> Dict[str, Any]:
+def _decode_success(raw: bytes, *, lista: bool = False) -> Any:
     if not raw:
-        return {}
+        return [] if lista else {}
     try:
         decoded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise FiscalAPIError("Resposta da API não é JSON válido.", body=raw[:500]) from exc
+    if lista and isinstance(decoded, list):
+        return decoded
     return decoded if isinstance(decoded, dict) else {"data": decoded}
 
 

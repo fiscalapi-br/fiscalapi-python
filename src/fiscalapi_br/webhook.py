@@ -1,4 +1,5 @@
-"""Verificação da assinatura dos avisos do Monitor de NF-e.
+"""Verificação da assinatura dos avisos do Monitor de NF-e e da Emissão de NFS-e
+(o esquema é o mesmo nos dois produtos).
 
 Cada aviso chega com ``X-FiscalAPI-Timestamp`` (segundos Unix) e
 ``X-FiscalAPI-Assinatura: v1=<hex>``, onde
@@ -21,7 +22,8 @@ Exemplo (Flask)::
         if not ok:
             return "", 401
         aviso = request.get_json()
-        # deduplique por aviso["id"]: a entrega é "pelo menos uma vez"
+        # deduplique: no monitor, por aviso["id"]; na emissão de NFS-e, por
+        # X-FiscalAPI-Entrega + aviso["updated_at"] (entrega "pelo menos uma vez")
         return "", 200
 """
 from __future__ import annotations
@@ -58,7 +60,7 @@ def verificar_assinatura(
     *,
     agora: Optional[float] = None,
 ) -> bool:
-    """Confere se um aviso do Monitor de NF-e veio da FiscalAPI.
+    """Confere se um aviso do Monitor de NF-e ou da Emissão de NFS-e veio da FiscalAPI.
 
     Args:
         corpo_bruto: bytes do corpo exatamente como chegaram (não o JSON reserializado).
