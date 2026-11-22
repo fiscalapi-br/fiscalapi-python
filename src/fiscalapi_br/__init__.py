@@ -1,7 +1,8 @@
 """SDK oficial da FiscalAPI para Python.
 
 Consulta de Inscrição Estadual, CNPJ, certidões, NF-e, CT-e, Monitor de NF-e,
-SIGEF, CNIR e perfil do produtor rural pela API REST https://api.fiscalapi.com.br.
+emissão de NFS-e Nacional, SIGEF, CNIR e perfil do produtor rural pela API REST
+https://api.fiscalapi.com.br.
 """
 from ._client import DEFAULT_BASE_URL, MONITOR_NFE_MAX_LOTE, FiscalAPI
 from ._errors import (

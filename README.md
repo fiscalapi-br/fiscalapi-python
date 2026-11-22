@@ -1,6 +1,6 @@
 # FiscalAPI — SDK Python
 
-Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e e de CT-e por chave, Monitor de NF-e por chave com webhook, DIFAL de saída por UF, NFS-e por chave, Simples Nacional, SIGEF, CNIR e perfil do produtor rural.
+Cliente Python da [FiscalAPI](https://fiscalapi.com.br): Inscrição Estadual nos 27 estados, CNPJ, certidões (CND estadual, CND Federal, CNDT, CRF/FGTS), XML de NF-e e de CT-e por chave, Monitor de NF-e por chave com webhook, emissão de NFS-e Nacional, DIFAL de saída por UF, NFS-e por chave, Simples Nacional, SIGEF, CNIR e perfil do produtor rural.
 
 - Zero dependências (só a biblioteca padrão).
 - Python 3.9 ou superior.
@@ -53,6 +53,13 @@ for ie in resp["results"]:
 | `listar_chaves_monitor_nfe(status=, ativo=, alterado_desde=, cursor=, limite=)` / `iterar_chaves_monitor_nfe(...)` | `GET /api/monitor-nfe/chaves` | Chaves monitoradas (uma página / todas) |
 | `consultar_chave_monitor_nfe(chave)` | `GET /api/monitor-nfe/chaves/{chave}` | Situação, eventos e entregas que falharam |
 | `cadastrar_webhook_monitor_nfe(url)`, `consultar_webhook_monitor_nfe()`, `remover_webhook_monitor_nfe()`, `rotacionar_segredo_webhook_monitor_nfe()`, `testar_webhook_monitor_nfe()` | `/api/monitor-nfe/webhook` | Webhook dos avisos |
+| `criar_empresa_nfse(empresa)`, `listar_empresas_nfse()`, `obter_empresa_nfse(empresa_id)`, `atualizar_empresa_nfse(empresa_id, mudancas)` | `/api/nfse/empresas` | Empresas emissoras de NFS-e |
+| `enviar_certificado_nfse(certificado, senha=)` / `excluir_certificado_nfse(raiz)` | `PUT /api/nfse/certificados` / `DELETE /api/nfse/certificados/{raiz}` | Certificado A1 da empresa (multipart) |
+| `emitir_nfse(nota, idempotency_key=)` | `POST /api/nfse/notas` | Emite NFS-e (assíncrono, `202`) |
+| `obter_nfse(nota_id)`, `listar_nfse(status=, ambiente=, referencia=, atualizada_desde=, cursor=, limite=)` / `iterar_nfse(...)` | `GET /api/nfse/notas` | NFS-e emitidas (uma / uma página / todas) |
+| `cancelar_nfse(nota_id, motivo=, justificativa=)`, `substituir_nfse(nota_id, substituicao)` | `POST /api/nfse/notas/{id}/cancelamento` e `/substituicao` | Cancela ou substitui |
+| `baixar_xml_nfse(nota_id)` / `baixar_pdf_nfse(nota_id)` | `GET /api/nfse/notas/{id}/xml` e `/pdf` | XML autorizado (`str`) e DANFSe (`bytes`) |
+| `configurar_webhook_nfse(url)`, `obter_webhook_nfse()`, `remover_webhook_nfse()`, `reenviar_webhook_nfse(nota_id)` | `/api/nfse/webhook` | Webhook da emissão |
 | `consultar_difal_saida(competencia, certificado=, senha=, ufs=)` | `POST /api/consultar-difal-saida` | DIFAL de saída por UF de destino (Beta) |
 | `consultar_sigef(cpf=/cnpj=)` | `GET /api/consultar-sigef` | Parcelas certificadas no SIGEF/INCRA |
 | `consultar_sigef_parcela(uuid, force_fresh=False)` | `GET /api/consultar-sigef-parcela` | Uma parcela com polígono, vértices e confrontantes |
@@ -211,6 +218,105 @@ def avisos():
 
 A assinatura é `v1=` + HMAC-SHA256 do segredo inteiro (`whsec_...`) sobre `"{timestamp}." + corpo`. Depois de `rotacionar_segredo_webhook_monitor_nfe()`, o cabeçalho traz `v1=nova,v1=anterior` por 24 h: o helper aceita qualquer uma. Tipos de aviso: `nfe.status_alterado`, `nfe.evento_registrado`, `nfe.monitoramento_encerrado` e `teste`. Detalhes: [documentação](https://docs.fiscalapi.com.br).
 
+### Emissão de NFS-e Nacional
+
+Emita a NFS-e do padrão nacional pela sua empresa, assinada com o certificado A1 dela. A nota é processada em segundos e o resultado chega por webhook. Homologação é grátis (1.000 notas por mês); em produção, só a nota autorizada é cobrada.
+
+**Primeira nota (homologação):**
+
+```python
+import os
+from pathlib import Path
+
+from fiscalapi_br import FiscalAPI
+
+api = FiscalAPI(os.environ["FISCALAPI_API_KEY"])
+
+# 1. Certificado A1 (e-CNPJ ICP-Brasil) da empresa, uma vez
+api.enviar_certificado_nfse("empresa.pfx", senha=os.environ["SENHA_CERTIFICADO"])
+
+# 2. Empresa emissora (fictícia: troque pelos dados da sua)
+empresa = api.criar_empresa_nfse({
+    "cnpj": "11.222.333/0001-81",
+    "razao_social": "Exemplo Servicos de Tecnologia Ltda",
+    "im": "123456",
+    "cod_mun_ibge": "4106902",  # Curitiba
+    "regime": {"op_simp_nac": 3, "reg_ap_trib_sn": 1},  # ME/EPP do Simples
+    "serie": "00001",
+})
+
+# 3. Webhook (opcional). O segredo só volta no primeiro cadastro: guarde-o.
+segredo = api.configurar_webhook_nfse("https://seu-sistema.com.br/webhooks/nfse")["segredo"]
+
+# 4. Emita
+nota = api.emitir_nfse({
+    "empresa_id": empresa["id"],
+    "ambiente": "homologacao",
+    "referencia": "teste-0001",  # o seu id do pedido; obrigatório em produção
+    "preset": "simples_servico",
+    "competencia": "2026-11-22",
+    "tomador": {"tipo": "cnpj", "documento": "12.345.678/0001-95", "nome": "Cliente Exemplo Comercio Ltda"},
+    "servico": {
+        "codigo_tributacao_nacional": "01.07.01",
+        "descricao": "Suporte técnico em informática, novembro de 2026",
+    },
+    "valores": {"valor_servico": "1500.00", "percentual_tributos_aproximado": "6.00"},
+})
+print(nota["id"], nota["status"])  # "pendente"; avisos em nota["avisos"]
+
+# 5. Sem webhook, consulte
+atual = api.obter_nfse(nota["id"])
+if atual["status"] == "autorizada":
+    Path("danfse.pdf").write_bytes(api.baixar_pdf_nfse(nota["id"]))
+    Path("nfse.xml").write_text(api.baixar_xml_nfse(nota["id"]), encoding="utf-8")
+elif atual["status"] == "rejeitada":
+    print(atual["erros"])  # [{"codigo": ..., "descricao": ...}]
+```
+
+Para produção, troque `ambiente` para `"producao"` e mande sempre a `referencia` (ou `idempotency_key=`): repetir o mesmo pedido devolve a nota que já existe, sem emitir outra. Com ela, o SDK também repete a chamada em falha de rede e `5xx`. Sem nenhuma das duas, `emitir_nfse` em produção levanta `ValueError` antes de chamar a API. Valores podem ir como `str` ou `Decimal`.
+
+**Cancelar, substituir e sincronizar:**
+
+```python
+api.cancelar_nfse(nota_id, motivo=1, justificativa="Valor do serviço informado errado na nota.")
+
+nova = api.substituir_nfse(nota_id, {
+    "referencia": "pedido-1001-v2",
+    "motivo": "99",
+    "justificativa": "Descrição corrigida a pedido do cliente.",
+    "competencia": "2026-11-20",
+    "tomador": tomador,
+    "servico": servico,
+    "valores": {**valores, "iss": {"tributacao": 1}},
+})
+
+for n in api.iterar_nfse(ambiente="producao", atualizada_desde=ultimo_updated_at):
+    ...  # trate repetidos pelo id
+```
+
+**Receber o aviso.** O webhook da emissão usa o mesmo esquema de assinatura do Monitor de NF-e, e o mesmo helper serve:
+
+```python
+from fiscalapi_br import verificar_assinatura
+
+@app.post("/webhooks/nfse")
+def aviso_nfse():
+    ok = verificar_assinatura(
+        request.get_data(),  # corpo bruto, antes do JSON
+        request.headers.get("X-FiscalAPI-Assinatura"),
+        request.headers.get("X-FiscalAPI-Timestamp"),
+        os.environ["FISCALAPI_NFSE_WEBHOOK_SEGREDO"],
+    )
+    if not ok:
+        return "", 401
+    aviso = request.get_json()
+    # aviso["evento"]: autorizada, rejeitada, cancelada, substituida ou cancelamento_recusado
+    # deduplique por X-FiscalAPI-Entrega + aviso["updated_at"]; filtre por aviso["ambiente"]
+    return "", 204  # responda 2xx em até 10 s
+```
+
+Erros da API chegam com o código em `e.code` (ex.: `NFSE_DADOS_INVALIDOS`, com a lista em `e.body["erros"]`; `NFSE_REFERENCIA_EM_USO`; `NFSE_TERMOS_PENDENTES`). Campos, presets, IBS/CBS e a tabela de erros: [documentação da emissão](https://docs.fiscalapi.com.br/docs/emissao-nfse/visao-geral).
+
 ### DIFAL de saída por UF de destino (Beta)
 
 ```python
@@ -283,8 +389,8 @@ except FiscalAPIError as e:
 api = FiscalAPI("sua-chave", timeout=200, max_retries=3)
 ```
 
-- `429`: o SDK espera o tempo do cabeçalho `Retry-After` e tenta de novo.
-- `500`, `502`, `503`, `504` e falhas de rede: novas tentativas com espera exponencial, **só em consultas GET**. POST, PUT e DELETE (NF-e, cadastro no monitor, webhook) não são repetidos automaticamente.
+- `429`: o SDK espera o tempo do cabeçalho `Retry-After` e tenta de novo (menos `NFSE_HOMOLOG_LIMITE`, o limite mensal de homologação).
+- `500`, `502`, `503`, `504` e falhas de rede: novas tentativas com espera exponencial, **só em consultas GET**. POST, PUT, PATCH e DELETE (NF-e, cadastro no monitor, webhook) não são repetidos automaticamente; a exceção é `emitir_nfse` e `substituir_nfse` com `referencia` ou `idempotency_key`, que a API trata sem duplicar.
 - Algumas consultas (NF-e, SIGEF) podem levar até 3 minutos; o timeout padrão é 200 s.
 
 ## Links

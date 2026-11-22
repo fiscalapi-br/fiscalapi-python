@@ -6,7 +6,8 @@ SDK não descarta nada do que a API devolve.
 """
 from __future__ import annotations
 
-from typing import List, Literal, Optional, TypedDict
+from decimal import Decimal
+from typing import List, Literal, Optional, TypedDict, Union
 
 StatusFonte = Literal["success", "error", "timeout", "skipped"]
 StatusCertidao = Literal[
@@ -560,3 +561,258 @@ class SegredoWebhookRotacionado(TypedDict, total=False):
 class TesteWebhookEnfileirado(TypedDict, total=False):
     id: str
     estado: Literal["pendente"]
+
+
+# --------------------------------------------------------- Emissão de NFS-e
+
+AmbienteNfse = Literal["homologacao", "producao"]
+StatusNotaNfse = Literal[
+    "pendente",
+    "processando",
+    "autorizada",
+    "rejeitada",
+    "cancelando",
+    "cancelada",
+    "substituida",
+]
+EventoWebhookNfse = Literal["autorizada", "rejeitada", "cancelada", "substituida", "cancelamento_recusado"]
+PresetNfse = Literal["simples_servico", "regime_normal_servico", "locacao_bem_movel"]
+# Valores decimais: str ("1500.00"), Decimal ou número. O SDK serializa Decimal como texto.
+DecimalNfse = Union[str, int, float, Decimal]
+
+
+class _RegimeNfseObrigatorio(TypedDict):
+    op_simp_nac: Literal[1, 2, 3]  # 1 não optante, 2 MEI, 3 ME/EPP
+
+
+class RegimeNfse(_RegimeNfseObrigatorio, total=False):
+    reg_ap_trib_sn: Optional[Literal[1, 2, 3]]  # só para ME/EPP, e obrigatório nele
+    reg_esp_trib: Literal[0, 1, 2, 3, 4, 5, 6, 9]  # padrão 0 (nenhum)
+    reg_ap_ibscbs_sn: Optional[Literal[1, 2, 3]]
+
+
+class _EmpresaNfseInObrigatorio(TypedDict):
+    cnpj: str
+    razao_social: str
+    cod_mun_ibge: str  # IBGE, 7 dígitos
+    regime: RegimeNfse
+    serie: str  # 00001 a 49999
+
+
+class EmpresaNfseIn(_EmpresaNfseInObrigatorio, total=False):
+    im: Optional[str]
+    primeiro_ndps_producao: Optional[int]
+    auth_modo: Literal["certificado"]
+    certificado_id: Optional[str]
+
+
+class EmpresaNfsePatch(TypedDict, total=False):
+    """Mande só o que muda. ``{"ativa": False}`` desliga; ``{"ativa": True}`` religa."""
+
+    razao_social: str
+    im: Optional[str]
+    cod_mun_ibge: str
+    regime: RegimeNfse
+    ativa: bool
+
+
+class AvisoValidacaoNfse(TypedDict, total=False):
+    codigo: str
+    campo: str
+    mensagem: str
+
+
+class RegimeNfseOut(TypedDict, total=False):
+    op_simp_nac: int
+    reg_ap_trib_sn: Optional[int]
+    reg_esp_trib: int
+    reg_ap_ibscbs_sn: Optional[int]
+
+
+class EmpresaNfse(TypedDict, total=False):
+    id: str
+    cnpj: str
+    razao_social: str
+    im: Optional[str]
+    cod_mun_ibge: str
+    regime: RegimeNfseOut
+    auth_modo: str
+    certificado_id: Optional[str]
+    serie: str
+    proximo_ndps_producao: int
+    proximo_ndps_homologacao: int
+    ativa: bool
+    verificada: bool  # só empresa verificada emite em produção
+    verificada_em: Optional[str]
+    convenio_ok: Optional[bool]  # None: não deu para confirmar
+    avisos: List[AvisoValidacaoNfse]
+    created_at: Optional[str]
+    updated_at: Optional[str]
+
+
+class CertificadoNfse(TypedDict, total=False):
+    id: str
+    cnpj_raiz: str
+    titular_cnpj: str
+    fingerprint: str
+    valido_ate: str
+    created_at: Optional[str]
+
+
+class EnderecoNacionalNfse(TypedDict, total=False):
+    cep: str
+    cod_mun_ibge: str
+    logradouro: str
+    numero: Optional[str]
+    complemento: Optional[str]
+    bairro: Optional[str]
+
+
+class EnderecoExteriorNfse(TypedDict, total=False):
+    cod_pais: str
+    cod_postal: str
+    cidade: str
+    estado_provincia: str
+    logradouro: str
+    numero: Optional[str]
+    complemento: Optional[str]
+    bairro: Optional[str]
+
+
+class TomadorNfse(TypedDict, total=False):
+    tipo: Literal["cpf", "cnpj", "estrangeiro", "nao_identificado"]
+    documento: Optional[str]
+    nome: Optional[str]
+    email: Optional[str]
+    endereco: Optional[EnderecoNacionalNfse]
+    endereco_ext: Optional[EnderecoExteriorNfse]
+    nif: Optional[str]
+    motivo_sem_nif: Optional[Literal[1, 2]]
+
+
+class DestinatarioNfse(TypedDict, total=False):
+    tipo: Literal["cpf", "cnpj"]
+    documento: str
+    nome: str
+    endereco: EnderecoNacionalNfse
+
+
+class ServicoNfse(TypedDict, total=False):
+    codigo_tributacao_nacional: str  # 01.07.01 ou 010701
+    descricao: str
+    codigo_nbs: Optional[str]
+    codigo_atividade_sn: Optional[str]
+    cod_mun_prestacao: Optional[str]
+
+
+class IssNfse(TypedDict, total=False):
+    tributacao: Literal[1, 2, 3, 4]
+    retido: bool
+    aliquota: Optional[DecimalNfse]
+
+
+class TributosAproximadosNfse(TypedDict):
+    federal: DecimalNfse
+    estadual: DecimalNfse
+    municipal: DecimalNfse
+
+
+class ValoresNfse(TypedDict, total=False):
+    valor_servico: DecimalNfse
+    desconto_incondicionado: DecimalNfse
+    iss: Optional[IssNfse]
+    percentual_tributos_aproximado: Optional[DecimalNfse]  # ME/EPP
+    tributos_aproximados: Optional[TributosAproximadosNfse]  # não optante
+
+
+class IbsCbsNfse(TypedDict, total=False):
+    cclass_trib: Optional[str]
+    cst: Optional[str]
+    cind_op: Optional[str]
+    ind_final: Optional[Literal[0, 1]]
+    tp_oper: Optional[int]
+
+
+class BemMovelNfse(TypedDict):
+    ncm: str
+    descricao: str
+    quantidade: int
+
+
+class DadosNotaNfse(TypedDict, total=False):
+    competencia: str  # AAAA-MM-DD (date também é aceito)
+    tomador: TomadorNfse
+    destinatario: Optional[DestinatarioNfse]
+    servico: ServicoNfse
+    valores: ValoresNfse
+    ibs_cbs: Optional[IbsCbsNfse]
+    bens_moveis: List[BemMovelNfse]
+    codigo_interno: Optional[str]
+
+
+class NotaNfseIn(DadosNotaNfse, total=False):
+    """Corpo de ``POST /api/nfse/notas``. ``referencia`` é obrigatória em produção."""
+
+    empresa_id: str
+    ambiente: AmbienteNfse
+    referencia: Optional[str]
+    preset: Optional[PresetNfse]
+
+
+class SubstituicaoNfseIn(DadosNotaNfse, total=False):
+    """Corpo de ``POST /api/nfse/notas/{id}/substituicao``. Empresa e ambiente vêm da original."""
+
+    referencia: Optional[str]  # da nota NOVA
+    motivo: Literal["01", "02", "03", "04", "05", "99"]
+    justificativa: Optional[str]  # 15 a 255; obrigatória com motivo 99
+
+
+class ErroNotaNfse(TypedDict, total=False):
+    codigo: str
+    descricao: str
+
+
+class NotaNfse(TypedDict, total=False):
+    id: str
+    status: StatusNotaNfse
+    ambiente: AmbienteNfse
+    referencia: Optional[str]
+    empresa_id: str
+    dps_id: str
+    chave_acesso: Optional[str]
+    numero_nfse: Optional[str]
+    erros: Optional[List[ErroNotaNfse]]
+    erro_codigo: Optional[str]
+    avisos: List[AvisoValidacaoNfse]
+    autorizada_em: Optional[str]
+    cancelada_em: Optional[str]
+    substitui_id: Optional[str]
+    substituida_por_id: Optional[str]
+    created_at: Optional[str]
+    updated_at: Optional[str]
+
+
+class PaginaNotasNfse(TypedDict, total=False):
+    itens: List[NotaNfse]
+    proximo: Optional[str]  # None no fim
+
+
+class WebhookNfse(TypedDict, total=False):
+    url: Optional[str]
+    ativo: bool
+    segredo_final: Optional[str]
+    eventos: List[EventoWebhookNfse]
+
+
+class WebhookNfseConfigurado(WebhookNfse, total=False):
+    segredo: Optional[str]  # só no primeiro cadastro: guarde-o
+
+
+class ReenvioWebhookNfse(TypedDict, total=False):
+    reenfileiradas: int
+
+
+class AvisoWebhookNfse(NotaNfse, total=False):
+    """Corpo do aviso do webhook da emissão: a nota no momento do evento."""
+
+    evento: EventoWebhookNfse
